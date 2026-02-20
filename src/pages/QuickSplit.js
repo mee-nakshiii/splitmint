@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { minimizeTransactions } from '../utils/settlement';
 import { scanItemizedBill } from '../utils/gemini';
 import { QRCodeSVG } from 'qrcode.react';
 
 const QuickSplit = () => {
+  const fileInputRef = useRef(null);
   const [participants, setParticipants] = useState([
     { name: 'Meenakshi', upi: 'meenakshi@upi', paid: 0 },
     { name: 'Saira', upi: 'saira@upi', paid: 0 }
@@ -24,10 +25,15 @@ const QuickSplit = () => {
     try {
       const scanned = await scanItemizedBill(file);
       if (scanned && scanned.length > 0) {
-        setItems(scanned.map(item => ({ ...item, price: Number(item.price), consumers: [] })));
+        setItems(scanned.map(item => ({ 
+          ...item, 
+          price: Number(item.price), 
+          consumers: [] 
+        })));
       }
     } catch (error) {
       console.error("Scan error:", error);
+      alert("Failed to read receipt. Try manual entry.");
     } finally {
       setIsScanning(false);
     }
@@ -63,12 +69,10 @@ const QuickSplit = () => {
     const balances = {};
     participants.forEach(p => { balances[p.name] = 0; });
     
-    // Logic: Each consumer adds the unit price to the total bill
     items.forEach(item => {
       if (item.consumers.length > 0) {
         const unitPrice = Number(item.price);
         item.consumers.forEach(p => { 
-          // Each person pays the full price of 1 unit
           balances[p] -= unitPrice; 
         });
       }
@@ -81,7 +85,6 @@ const QuickSplit = () => {
     setResults(minimizeTransactions(balances));
   };
 
-  // Logic Update: Grand total scales by the number of consumers per item
   const dynamicTotal = items.reduce((sum, item) => {
     return sum + (Number(item.price) * item.consumers.length);
   }, 0);
@@ -91,18 +94,20 @@ const QuickSplit = () => {
   return (
     <div style={{ padding: '20px', maxWidth: '500px', margin: 'auto', fontFamily: 'sans-serif' }}>
       <Link to="/" style={{ textDecoration: 'none', color: '#00b894', fontWeight: 'bold' }}>← Back</Link>
-      <h2 style={{ color: '#2d3436', marginTop: '10px' }}>⚡ Quantity-Based Split</h2>
+      <h2 style={{ color: '#2d3436', marginTop: '10px' }}>⚡ Quick Split</h2>
 
+      {/* Step 1: Participants */}
       <div style={{ background: '#fff', padding: '15px', borderRadius: '15px', border: '1px solid #eee', marginBottom: '20px' }}>
-        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 1: Friends</p>
+        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 1: Add Friends</p>
         <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
           <input placeholder="Name" value={newPersonName} onChange={(e) => setNewPersonName(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
           <button onClick={addParticipant} style={{ padding: '10px 15px', background: '#6c5ce7', color: 'white', border: 'none', borderRadius: '8px' }}>Add</button>
         </div>
       </div>
 
+      {/* Step 2: Payments */}
       <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '15px', marginBottom: '20px' }}>
-        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 2: Payment at Counter</p>
+        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 2: Who paid at the counter?</p>
         {participants.map((p, idx) => (
           <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
             <span style={{ flex: 1, fontSize: '14px' }}>{p.name}:</span>
@@ -110,19 +115,23 @@ const QuickSplit = () => {
           </div>
         ))}
         <div style={{ fontSize: '12px', textAlign: 'right', fontWeight: 'bold', color: Math.abs(totalPaidAtCounter - dynamicTotal) > 1 ? '#e74c3c' : '#27ae60' }}>
-          Total Paid: ₹{totalPaidAtCounter.toFixed(2)} / New Bill Total: ₹{dynamicTotal.toFixed(2)}
+          Total Paid: ₹{totalPaidAtCounter.toFixed(2)} / Split Total: ₹{dynamicTotal.toFixed(2)}
         </div>
       </div>
 
+      {/* Step 3: Input Mode */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-        <button onClick={() => setEntryMode('scan')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'scan' ? '#6c5ce7' : '#eee', color: entryMode === 'scan' ? 'white' : '#333', border: 'none' }}>Scan</button>
-        <button onClick={() => setEntryMode('manual')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'manual' ? '#6c5ce7' : '#eee', color: entryMode === 'manual' ? 'white' : '#333', border: 'none' }}>Manual</button>
+        <button onClick={() => setEntryMode('scan')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'scan' ? '#6c5ce7' : '#eee', color: entryMode === 'scan' ? 'white' : '#333', border: 'none' }}>Scan Bill</button>
+        <button onClick={() => setEntryMode('manual')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'manual' ? '#6c5ce7' : '#eee', color: entryMode === 'manual' ? 'white' : '#333', border: 'none' }}>Manual Entry</button>
       </div>
 
       {entryMode === 'scan' ? (
-        <div style={{ border: '2px dashed #6c5ce7', padding: '25px', borderRadius: '15px', textAlign: 'center', background: '#f9f9ff' }}>
-          <h4>{isScanning ? "🤖 Reading..." : "📸 Upload Receipt"}</h4>
-          <input type="file" accept="image/*" onChange={handleScan} />
+        <div 
+          onClick={() => fileInputRef.current.click()}
+          style={{ border: '2px dashed #6c5ce7', padding: '30px', borderRadius: '15px', textAlign: 'center', background: '#f9f9ff', cursor: 'pointer' }}
+        >
+          <h4>{isScanning ? "🤖 AI is reading..." : "📸 Tap to Scan Bill"}</h4>
+          <input type="file" ref={fileInputRef} accept="image/*" onChange={handleScan} style={{ display: 'none' }} />
         </div>
       ) : (
         <div style={{ background: '#fff', padding: '15px', borderRadius: '15px', border: '1px solid #eee' }}>
@@ -134,14 +143,15 @@ const QuickSplit = () => {
         </div>
       )}
 
+      {/* Step 4: Split Grid */}
       {items.length > 0 && (
         <div style={{ marginTop: '20px' }}>
-          <h4 style={{ color: '#6c5ce7' }}>Step 3: Tick per unit</h4>
+          <h4 style={{ color: '#6c5ce7' }}>Step 3: Who had what?</h4>
           {items.map((item, idx) => (
             <div key={idx} style={{ background: '#fff', padding: '12px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #eee' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ fontWeight: 'bold' }}>{item.name}</span>
-                <span>₹{Number(item.price)}/ea</span>
+                <span>₹{Number(item.price)} each</span>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
                 {participants.map(p => (
@@ -152,10 +162,11 @@ const QuickSplit = () => {
               </div>
             </div>
           ))}
-          <button onClick={handleCalculate} style={{ width: '100%', padding: '15px', background: '#00b894', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '10px' }}>Calculate (Qty x Price)</button>
+          <button onClick={handleCalculate} style={{ width: '100%', padding: '15px', background: '#00b894', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '10px' }}>Calculate Final Split</button>
         </div>
       )}
 
+      {/* Step 5: Results */}
       {results.map((res, i) => (
         <div key={i} style={{ marginTop: '20px', padding: '20px', background: '#2d3436', color: 'white', borderRadius: '20px', textAlign: 'center' }}>
           <p>{res.from} owes {res.to}</p>
