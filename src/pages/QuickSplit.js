@@ -1,223 +1,170 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { minimizeTransactions } from '../utils/settlement';
-import { scanBill } from '../utils/gemini';
+import { scanItemizedBill } from '../utils/gemini';
 import { QRCodeSVG } from 'qrcode.react';
 
 const QuickSplit = () => {
-  const [amount, setAmount] = useState('');
-  const [names, setNames] = useState(['Meenakshi', 'Saira']);
-  const [results, setResults] = useState([]);
+  const [participants, setParticipants] = useState([
+    { name: 'Meenakshi', upi: 'meenakshi@upi', paid: 0 },
+    { name: 'Saira', upi: 'saira@upi', paid: 0 }
+  ]);
+  const [newPersonName, setNewPersonName] = useState('');
+  const [newPersonUpi, setNewPersonUpi] = useState('');
+  const [items, setItems] = useState([]); 
   const [isScanning, setIsScanning] = useState(false);
-
-  const addPerson = () => {
-    setNames([...names, '']);
-  };
+  const [results, setResults] = useState([]);
+  const [entryMode, setEntryMode] = useState('scan');
+  const [manualItem, setManualItem] = useState({ name: '', price: '' });
 
   const handleScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     setIsScanning(true);
     try {
-      const detectedAmount = await scanBill(file);
-      if (detectedAmount) {
-        const cleanAmount = detectedAmount.replace(/[^0-9.]/g, '');
-        setAmount(cleanAmount);
+      const scanned = await scanItemizedBill(file);
+      if (scanned && scanned.length > 0) {
+        setItems(scanned.map(item => ({ ...item, price: Number(item.price), consumers: [] })));
       }
     } catch (error) {
-      console.error("Scanning failed", error);
-      alert("Gemini couldn't read the bill. Please enter manually.");
+      console.error("Scan error:", error);
+    } finally {
+      setIsScanning(false);
     }
-    setIsScanning(false);
+  };
+
+  const addParticipant = () => {
+    if (!newPersonName.trim()) return;
+    const upi = newPersonUpi.trim() || `${newPersonName.toLowerCase()}@upi`;
+    setParticipants([...participants, { name: newPersonName, upi: upi, paid: 0 }]);
+    setNewPersonName('');
+    setNewPersonUpi('');
+  };
+
+  const updatePaidAmount = (index, amount) => {
+    const updated = [...participants];
+    updated[index].paid = Number(amount) || 0;
+    setParticipants(updated);
+  };
+
+  const toggleConsumer = (itemIdx, personName) => {
+    const updatedItems = [...items];
+    const item = updatedItems[itemIdx];
+    if (item.consumers.includes(personName)) {
+      item.consumers = item.consumers.filter(p => p !== personName);
+    } else {
+      item.consumers.push(personName);
+    }
+    setItems(updatedItems);
   };
 
   const handleCalculate = () => {
-    if (!amount || names.some(n => n === '')) {
-      alert("Please enter a total amount and all names.");
-      return;
-    }
-
-    const total = parseFloat(amount);
-    const share = total / names.length;
+    if (items.length === 0) return;
     const balances = {};
-
-    names.forEach((name, i) => {
-      balances[name] = i === 0 ? total - share : -share;
+    participants.forEach(p => { balances[p.name] = 0; });
+    
+    // Logic: Each consumer adds the unit price to the total bill
+    items.forEach(item => {
+      if (item.consumers.length > 0) {
+        const unitPrice = Number(item.price);
+        item.consumers.forEach(p => { 
+          // Each person pays the full price of 1 unit
+          balances[p] -= unitPrice; 
+        });
+      }
     });
 
-    const settlements = minimizeTransactions(balances);
-    setResults(settlements);
+    participants.forEach(p => {
+      balances[p.name] += Number(p.paid);
+    });
+    
+    setResults(minimizeTransactions(balances));
   };
 
+  // Logic Update: Grand total scales by the number of consumers per item
+  const dynamicTotal = items.reduce((sum, item) => {
+    return sum + (Number(item.price) * item.consumers.length);
+  }, 0);
+
+  const totalPaidAtCounter = participants.reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
+
   return (
-    <div style={{ 
-      padding: '40px 20px', 
-      maxWidth: '600px', 
-      margin: 'auto', 
-      fontFamily: '"Inter", sans-serif',
-      backgroundColor: '#fff',
-      minHeight: '100vh'
-    }}>
-      <Link to="/" style={{ 
-        textDecoration: 'none', 
-        color: '#00b894', 
-        fontWeight: '600',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '5px',
-        marginBottom: '20px'
-      }}>
-        ← Back to Home
-      </Link>
+    <div style={{ padding: '20px', maxWidth: '500px', margin: 'auto', fontFamily: 'sans-serif' }}>
+      <Link to="/" style={{ textDecoration: 'none', color: '#00b894', fontWeight: 'bold' }}>← Back</Link>
+      <h2 style={{ color: '#2d3436', marginTop: '10px' }}>⚡ Quantity-Based Split</h2>
 
-      <h2 style={{ fontSize: '2rem', color: '#2d3436', marginBottom: '10px' }}>⚡ Quick Split</h2>
-      <p style={{ color: '#636e72', marginBottom: '30px' }}>One-time bills, instant settlements.</p>
-
-      <div style={{ 
-        border: '2px dashed #00b894', 
-        padding: '30px', 
-        borderRadius: '16px', 
-        marginBottom: '30px',
-        textAlign: 'center',
-        backgroundColor: '#f0fff4'
-      }}>
-        <p style={{ margin: '0 0 15px 0', fontWeight: 'bold', color: '#00b894' }}>
-          {isScanning ? "🤖 Gemini is reading your bill..." : "📸 Auto-fill with AI Scan"}
-        </p>
-        <input 
-          type="file" 
-          accept="image/*" 
-          onChange={handleScan} 
-          disabled={isScanning} 
-        />
+      <div style={{ background: '#fff', padding: '15px', borderRadius: '15px', border: '1px solid #eee', marginBottom: '20px' }}>
+        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 1: Friends</p>
+        <div style={{ display: 'flex', gap: '5px', marginBottom: '10px' }}>
+          <input placeholder="Name" value={newPersonName} onChange={(e) => setNewPersonName(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+          <button onClick={addParticipant} style={{ padding: '10px 15px', background: '#6c5ce7', color: 'white', border: 'none', borderRadius: '8px' }}>Add</button>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        <div>
-          <label style={{ fontWeight: '600', color: '#2d3436' }}>Total Bill Amount (₹)</label>
-          <input 
-            type="number" 
-            placeholder="0.00" 
-            value={amount} 
-            onChange={(e) => setAmount(e.target.value)}
-            style={{ 
-              width: '100%', 
-              padding: '15px', 
-              marginTop: '8px', 
-              borderRadius: '12px', 
-              border: '1px solid #dfe6e9',
-              fontSize: '1.1rem',
-              boxSizing: 'border-box'
-            }}
-          />
-        </div>
-
-        <div>
-          <label style={{ fontWeight: '600', color: '#2d3436' }}>Participants</label>
-          <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {names.map((name, i) => (
-              <div key={i} style={{ display: 'flex', gap: '10px' }}>
-                <input 
-                  placeholder={i === 0 ? "Payer (e.g. Meenakshi)" : "Friend's name"}
-                  value={name}
-                  onChange={(e) => {
-                    const newNames = [...names];
-                    newNames[i] = e.target.value;
-                    setNames(newNames);
-                  }}
-                  style={{ 
-                    flex: 1, 
-                    padding: '12px', 
-                    borderRadius: '10px', 
-                    border: '1px solid #dfe6e9'
-                  }}
-                />
-                {i === 0 && (
-                  <span style={{ 
-                    backgroundColor: '#00b894', 
-                    color: 'white', 
-                    padding: '8px 12px', 
-                    borderRadius: '8px', 
-                    fontSize: '0.75rem',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }}>
-                    PAYER
-                  </span>
-                )}
-              </div>
-            ))}
+      <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '15px', marginBottom: '20px' }}>
+        <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 2: Payment at Counter</p>
+        {participants.map((p, idx) => (
+          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+            <span style={{ flex: 1, fontSize: '14px' }}>{p.name}:</span>
+            <input type="number" value={p.paid || ''} onChange={(e) => updatePaidAmount(idx, e.target.value)} placeholder="₹ 0" style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
           </div>
+        ))}
+        <div style={{ fontSize: '12px', textAlign: 'right', fontWeight: 'bold', color: Math.abs(totalPaidAtCounter - dynamicTotal) > 1 ? '#e74c3c' : '#27ae60' }}>
+          Total Paid: ₹{totalPaidAtCounter.toFixed(2)} / New Bill Total: ₹{dynamicTotal.toFixed(2)}
         </div>
-
-        <button onClick={addPerson} style={{ 
-          background: 'none', 
-          border: '2px dashed #b2bec3', 
-          padding: '12px', 
-          width: '100%', 
-          cursor: 'pointer', 
-          borderRadius: '12px', 
-          color: '#636e72',
-          fontWeight: '600'
-        }}>
-          + Add Friend
-        </button>
-
-        <button onClick={handleCalculate} style={{ 
-          width: '100%', 
-          padding: '18px', 
-          background: '#00b894', 
-          color: 'white', 
-          border: 'none', 
-          borderRadius: '14px', 
-          fontWeight: 'bold', 
-          fontSize: '1.1rem', 
-          cursor: 'pointer'
-        }}>
-          Calculate Split
-        </button>
       </div>
 
-      {results.length > 0 && (
-        <div style={{ marginTop: '40px' }}>
-          <h3 style={{ color: '#2d3436', marginBottom: '20px' }}>Settlements</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            {results.map((res, i) => (
-              <div key={i} style={{ 
-                padding: '25px', 
-                background: '#f8f9fa', 
-                borderRadius: '20px', 
-                textAlign: 'center', 
-                border: '1px solid #eee'
-              }}>
-                <p style={{ fontSize: '1rem', color: '#2d3436', margin: '0' }}>
-                  <span style={{ fontWeight: 'bold', color: '#d63031' }}>{res.from}</span> pays <span style={{ fontWeight: 'bold', color: '#00b894' }}>{res.to}</span>
-                </p>
-                <h2 style={{ fontSize: '2rem', color: '#2d3436', margin: '15px 0' }}>₹{res.amount}</h2>
-                
-                <div style={{ 
-                  marginTop: '15px', 
-                  background: 'white', 
-                  padding: '20px', 
-                  display: 'inline-block', 
-                  borderRadius: '16px',
-                  boxShadow: '0 4px 10px rgba(0,0,0,0.05)'
-                }}>
-                  <QRCodeSVG 
-                    value={`upi://pay?pa=meenakshi@upi&pn=${res.to}&am=${res.amount}&cu=INR`} 
-                    size={160} 
-                  />
-                  <p style={{ fontSize: '0.75rem', color: '#b2bec3', marginTop: '10px' }}>
-                    Scan to pay via UPI
-                  </p>
-                </div>
-              </div>
-            ))}
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+        <button onClick={() => setEntryMode('scan')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'scan' ? '#6c5ce7' : '#eee', color: entryMode === 'scan' ? 'white' : '#333', border: 'none' }}>Scan</button>
+        <button onClick={() => setEntryMode('manual')} style={{ flex: 1, padding: '10px', borderRadius: '10px', background: entryMode === 'manual' ? '#6c5ce7' : '#eee', color: entryMode === 'manual' ? 'white' : '#333', border: 'none' }}>Manual</button>
+      </div>
+
+      {entryMode === 'scan' ? (
+        <div style={{ border: '2px dashed #6c5ce7', padding: '25px', borderRadius: '15px', textAlign: 'center', background: '#f9f9ff' }}>
+          <h4>{isScanning ? "🤖 Reading..." : "📸 Upload Receipt"}</h4>
+          <input type="file" accept="image/*" onChange={handleScan} />
+        </div>
+      ) : (
+        <div style={{ background: '#fff', padding: '15px', borderRadius: '15px', border: '1px solid #eee' }}>
+          <div style={{ display: 'flex', gap: '5px' }}>
+            <input placeholder="Item" value={manualItem.name} onChange={(e) => setManualItem({...manualItem, name: e.target.value})} style={{ flex: 2, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            <input placeholder="₹ Price" type="number" value={manualItem.price} onChange={(e) => setManualItem({...manualItem, price: e.target.value})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            <button onClick={() => { if(manualItem.name && manualItem.price) { setItems([...items, { name: manualItem.name, price: Number(manualItem.price), consumers: [] }]); setManualItem({ name: '', price: '' }); }}} style={{ background: '#00b894', color: 'white', border: 'none', borderRadius: '8px', padding: '0 15px' }}>Add</button>
           </div>
         </div>
       )}
+
+      {items.length > 0 && (
+        <div style={{ marginTop: '20px' }}>
+          <h4 style={{ color: '#6c5ce7' }}>Step 3: Tick per unit</h4>
+          {items.map((item, idx) => (
+            <div key={idx} style={{ background: '#fff', padding: '12px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #eee' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 'bold' }}>{item.name}</span>
+                <span>₹{Number(item.price)}/ea</span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
+                {participants.map(p => (
+                  <button key={p.name} onClick={() => toggleConsumer(idx, p.name)} style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '15px', border: '1px solid #6c5ce7', background: item.consumers.includes(p.name) ? '#6c5ce7' : 'white', color: item.consumers.includes(p.name) ? 'white' : '#6c5ce7' }}>
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          <button onClick={handleCalculate} style={{ width: '100%', padding: '15px', background: '#00b894', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '10px' }}>Calculate (Qty x Price)</button>
+        </div>
+      )}
+
+      {results.map((res, i) => (
+        <div key={i} style={{ marginTop: '20px', padding: '20px', background: '#2d3436', color: 'white', borderRadius: '20px', textAlign: 'center' }}>
+          <p>{res.from} owes {res.to}</p>
+          <h2 style={{ color: '#00b894', margin: '5px 0' }}>₹{Number(res.amount).toFixed(2)}</h2>
+          <div style={{ background: 'white', padding: '10px', display: 'inline-block', borderRadius: '10px', marginTop: '10px' }}>
+            <QRCodeSVG value={`upi://pay?pa=${participants.find(p => p.name === res.to)?.upi}&am=${Number(res.amount).toFixed(2)}`} size={100} />
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
