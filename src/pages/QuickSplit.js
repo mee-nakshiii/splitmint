@@ -17,23 +17,33 @@ const QuickSplit = () => {
   const [results, setResults] = useState([]);
   const [entryMode, setEntryMode] = useState('scan');
   const [manualItem, setManualItem] = useState({ name: '', price: '' });
+  // include quantity for manual entry
+  const [manualItemQty, setManualItemQty] = useState(1);
+  const [editingItemIdx, setEditingItemIdx] = useState(null);
+  const [editingItem, setEditingItem] = useState({ name: '', price: '' });
+  const [editingParticipantIdx, setEditingParticipantIdx] = useState(null);
+  const [editingParticipant, setEditingParticipant] = useState({ name: '', upi: '', paid: 0 });
 
   const handleScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setIsScanning(true);
     try {
+      console.log('QuickSplit.handleScan: file selected', file.name);
       const scanned = await scanItemizedBill(file);
+      console.log('QuickSplit.handleScan: scanned result', scanned);
       if (scanned && scanned.length > 0) {
         setItems(scanned.map(item => ({ 
           ...item, 
           price: Number(item.price), 
           consumers: [] 
         })));
+      } else {
+        alert('AI returned no items. Check the browser console for details.');
       }
     } catch (error) {
-      console.error("Scan error:", error);
-      alert("Failed to read receipt. Try manual entry.");
+      console.error("QuickSplit.scan error:", error);
+      alert("Failed to read receipt: " + (error?.message || error) + " — try manual entry.");
     } finally {
       setIsScanning(false);
     }
@@ -45,6 +55,25 @@ const QuickSplit = () => {
     setParticipants([...participants, { name: newPersonName, upi: upi, paid: 0 }]);
     setNewPersonName('');
     setNewPersonUpi('');
+  };
+
+  const startEditParticipant = (idx) => {
+    setEditingParticipantIdx(idx);
+    const p = participants[idx];
+    setEditingParticipant({ name: p.name, upi: p.upi, paid: p.paid });
+  };
+
+  const saveEditParticipant = (idx) => {
+    const updated = [...participants];
+    updated[idx] = { name: editingParticipant.name, upi: editingParticipant.upi, paid: Number(editingParticipant.paid) || 0 };
+    setParticipants(updated);
+    setEditingParticipantIdx(null);
+  };
+
+  const removeParticipant = (name) => {
+    if (!window.confirm(`Remove ${name}?`)) return;
+    setParticipants(prev => prev.filter(p => p.name !== name));
+    setItems(prev => prev.map(it => ({ ...it, consumers: (it.consumers || []).filter(c => c !== name) })));
   };
 
   const updatePaidAmount = (index, amount) => {
@@ -62,6 +91,33 @@ const QuickSplit = () => {
       item.consumers.push(personName);
     }
     setItems(updatedItems);
+  };
+
+  const selectAllForItem = (idx) => {
+    const members = participants.map(p => p.name);
+    const item = items[idx];
+    const allSelected = (item.consumers || []).length === members.length && members.length > 0;
+    const updated = [...items];
+    updated[idx] = { ...item, consumers: allSelected ? [] : members };
+    setItems(updated);
+  };
+
+  const startEditItem = (idx) => {
+    setEditingItemIdx(idx);
+    const it = items[idx];
+    setEditingItem({ name: it.name, price: it.price });
+  };
+
+  const saveEditItem = (idx) => {
+    const updated = [...items];
+    updated[idx] = { ...updated[idx], name: editingItem.name, price: Number(editingItem.price) || 0 };
+    setItems(updated);
+    setEditingItemIdx(null);
+  };
+
+  const deleteItem = (idx) => {
+    if (!window.confirm('Delete this item?')) return;
+    setItems(prev => prev.filter((_, i) => i !== idx));
   };
 
   const handleCalculate = () => {
@@ -110,8 +166,22 @@ const QuickSplit = () => {
         <p style={{ margin: '0 0 10px 0', fontSize: '14px', fontWeight: 'bold' }}>Step 2: Who paid at the counter?</p>
         {participants.map((p, idx) => (
           <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-            <span style={{ flex: 1, fontSize: '14px' }}>{p.name}:</span>
-            <input type="number" value={p.paid || ''} onChange={(e) => updatePaidAmount(idx, e.target.value)} placeholder="₹ 0" style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            {editingParticipantIdx === idx ? (
+              <>
+                <input value={editingParticipant.name} onChange={e => setEditingParticipant({...editingParticipant, name: e.target.value})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                <input value={editingParticipant.upi} onChange={e => setEditingParticipant({...editingParticipant, upi: e.target.value})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                <input type="number" value={editingParticipant.paid || ''} onChange={e => setEditingParticipant({...editingParticipant, paid: e.target.value})} style={{ width: '110px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                <button onClick={() => saveEditParticipant(idx)} style={{ padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px' }}>Save</button>
+                <button onClick={() => setEditingParticipantIdx(null)} style={{ padding: '10px', borderRadius: '8px' }}>Cancel</button>
+              </>
+            ) : (
+              <>
+                <span style={{ flex: 1, fontSize: '14px' }}>{p.name}</span>
+                <input type="number" value={p.paid || ''} onChange={(e) => updatePaidAmount(idx, e.target.value)} placeholder="₹ 0" style={{ width: '110px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                <button onClick={() => startEditParticipant(idx)} style={{ padding: '10px', borderRadius: '8px' }}>Edit</button>
+                <button onClick={() => removeParticipant(p.name)} style={{ padding: '10px', borderRadius: '8px', background: '#fee2e2', border: 'none' }}>Remove</button>
+              </>
+            )}
           </div>
         ))}
         <div style={{ fontSize: '12px', textAlign: 'right', fontWeight: 'bold', color: Math.abs(totalPaidAtCounter - dynamicTotal) > 1 ? '#e74c3c' : '#27ae60' }}>
@@ -127,18 +197,26 @@ const QuickSplit = () => {
 
       {entryMode === 'scan' ? (
         <div 
-          onClick={() => fileInputRef.current.click()}
-          style={{ border: '2px dashed #6c5ce7', padding: '30px', borderRadius: '15px', textAlign: 'center', background: '#f9f9ff', cursor: 'pointer' }}
+          style={{ border: '2px dashed #6c5ce7', padding: '30px', borderRadius: '15px', textAlign: 'center', background: '#f9f9ff', cursor: 'pointer', position: 'relative' }}
+          onClick={() => fileInputRef.current?.click()}
         >
           <h4>{isScanning ? "🤖 AI is reading..." : "📸 Tap to Scan Bill"}</h4>
-          <input type="file" ref={fileInputRef} accept="image/*" onChange={handleScan} style={{ display: 'none' }} />
+          <input
+            type="file"
+            ref={fileInputRef}
+            accept="image/*"
+            onClick={() => { if (fileInputRef.current) fileInputRef.current.value = null; }}
+            onChange={handleScan}
+            style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' }}
+          />
         </div>
       ) : (
         <div style={{ background: '#fff', padding: '15px', borderRadius: '15px', border: '1px solid #eee' }}>
           <div style={{ display: 'flex', gap: '5px' }}>
             <input placeholder="Item" value={manualItem.name} onChange={(e) => setManualItem({...manualItem, name: e.target.value})} style={{ flex: 2, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <input placeholder="₹ Price" type="number" value={manualItem.price} onChange={(e) => setManualItem({...manualItem, price: e.target.value})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
-            <button onClick={() => { if(manualItem.name && manualItem.price) { setItems([...items, { name: manualItem.name, price: Number(manualItem.price), consumers: [] }]); setManualItem({ name: '', price: '' }); }}} style={{ background: '#00b894', color: 'white', border: 'none', borderRadius: '8px', padding: '0 15px' }}>Add</button>
+            <input placeholder="Qty" type="number" min={1} value={manualItemQty} onChange={(e) => setManualItemQty(Number(e.target.value) || 1)} style={{ width: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            <input placeholder="₹ Price" type="number" value={manualItem.price} onChange={(e) => setManualItem({...manualItem, price: e.target.value})} style={{ width: '120px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+            <button onClick={() => { if(manualItem.name && manualItem.price) { setItems([...items, { name: manualItem.name, price: Number(manualItem.price), quantity: Number(manualItemQty) || 1, consumers: [] }]); setManualItem({ name: '', price: '' }); setManualItemQty(1); }}} style={{ background: '#00b894', color: 'white', border: 'none', borderRadius: '8px', padding: '0 15px' }}>Add</button>
           </div>
         </div>
       )}
@@ -149,17 +227,33 @@ const QuickSplit = () => {
           <h4 style={{ color: '#6c5ce7' }}>Step 3: Who had what?</h4>
           {items.map((item, idx) => (
             <div key={idx} style={{ background: '#fff', padding: '12px', borderRadius: '12px', marginBottom: '10px', border: '1px solid #eee' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ fontWeight: 'bold' }}>{item.name}</span>
-                <span>₹{Number(item.price)} each</span>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
-                {participants.map(p => (
-                  <button key={p.name} onClick={() => toggleConsumer(idx, p.name)} style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '15px', border: '1px solid #6c5ce7', background: item.consumers.includes(p.name) ? '#6c5ce7' : 'white', color: item.consumers.includes(p.name) ? 'white' : '#6c5ce7' }}>
-                    {p.name}
-                  </button>
-                ))}
-              </div>
+              {editingItemIdx === idx ? (
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input value={editingItem.name} onChange={e => setEditingItem({...editingItem, name: e.target.value})} style={{ flex: 2, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <input value={editingItem.price} onChange={e => setEditingItem({...editingItem, price: e.target.value})} style={{ width: '100px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <button onClick={() => saveEditItem(idx)} style={{ padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px' }}>Save</button>
+                  <button onClick={() => setEditingItemIdx(null)} style={{ padding: '10px', borderRadius: '8px' }}>Cancel</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 'bold' }}>{item.name}</span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <span>₹{Number(item.price)} each</span>
+                      <button onClick={() => startEditItem(idx)} style={{ padding: '8px', borderRadius: '8px' }}>Edit</button>
+                      <button onClick={() => deleteItem(idx)} style={{ padding: '8px', borderRadius: '8px', background: '#fee2e2', border: 'none' }}>Delete</button>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px', marginTop: '10px' }}>
+                    {participants.map(p => (
+                      <button key={p.name} onClick={() => toggleConsumer(idx, p.name)} style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '15px', border: '1px solid #6c5ce7', background: item.consumers.includes(p.name) ? '#6c5ce7' : 'white', color: item.consumers.includes(p.name) ? 'white' : '#6c5ce7' }}>
+                        {p.name}
+                      </button>
+                    ))}
+                    <button onClick={() => selectAllForItem(idx)} style={{ fontSize: '11px', padding: '5px 10px', borderRadius: '15px', border: '1px solid #ddd', background: '#f8fafc' }}>Select All</button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
           <button onClick={handleCalculate} style={{ width: '100%', padding: '15px', background: '#00b894', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', marginTop: '10px' }}>Calculate Final Split</button>

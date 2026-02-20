@@ -4,6 +4,7 @@ import { doc, onSnapshot, updateDoc, arrayUnion, getDoc, setDoc } from "firebase
 import { minimizeTransactions } from '../utils/settlement';
 import { scanItemizedBill } from '../utils/gemini';
 import { QRCodeSVG } from 'qrcode.react';
+import TripSummary from '../components/TripSummary';
 
 const TripRoom = () => {
   const fileInputRef = useRef(null);
@@ -13,6 +14,11 @@ const TripRoom = () => {
   const [roomData, setRoomData] = useState(null);
   const [activeReceiptId, setActiveReceiptId] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [paymentsLocal, setPaymentsLocal] = useState({});
+  const [newMemberName, setNewMemberName] = useState('');
+  const [newMemberUpi, setNewMemberUpi] = useState('');
+  const [entryMode, setEntryMode] = useState('scan');
+  const [manualItem, setManualItem] = useState({ name: '', price: '', quantity: 1 });
 
   // Safety Check: Real-Time Sync
   useEffect(() => {
@@ -29,6 +35,12 @@ const TripRoom = () => {
       return () => unsub();
     }
   }, [view, roomCode, activeReceiptId]);
+
+  // Sync local payments buffer when the active receipt changes
+  useEffect(() => {
+    const current = roomData?.receipts?.find(r => r.id === activeReceiptId);
+    setPaymentsLocal(current?.payments ? { ...current.payments } : {});
+  }, [activeReceiptId, roomData]);
 
   // Create Room Logic
   const handleCreate = async () => {
@@ -59,8 +71,10 @@ const TripRoom = () => {
     if (!file || !activeReceiptId) return;
     setIsScanning(true);
     try {
+      console.log('TripRoom.handleScan: file selected', file.name);
       const scanned = await scanItemizedBill(file);
-      if (scanned) {
+      console.log('TripRoom.handleScan: scanned result', scanned);
+      if (scanned && scanned.length > 0) {
         const updatedReceipts = roomData.receipts.map(r => {
           if (r.id === activeReceiptId) {
             const newItems = scanned.map(item => ({ 
@@ -71,7 +85,12 @@ const TripRoom = () => {
           return r;
         });
         await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
+      } else {
+        alert('AI returned no items. Check the browser console for details.');
       }
+    } catch (err) {
+      console.error('TripRoom.handleScan error', err);
+      alert('Scan failed: ' + (err?.message || err));
     } finally { setIsScanning(false); }
   };
 
@@ -93,6 +112,78 @@ const TripRoom = () => {
     await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
   };
 
+  const selectAllConsumers = async (itemId) => {
+    const members = (roomData?.members || []).map(m => m.name);
+    const updatedReceipts = roomData.receipts.map(r => {
+      if (r.id === activeReceiptId) {
+        const updatedItems = r.items.map(item => {
+          if (item.id === itemId) {
+            // if already all selected, clear; otherwise set all
+            const allSelected = (item.consumers || []).length === members.length && members.length > 0;
+            return { ...item, consumers: allSelected ? [] : members };
+          }
+          return item;
+        });
+        return { ...r, items: updatedItems };
+      }
+      return r;
+    });
+    await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
+  };
+
+  // Edit / Delete items
+  const [editingItemId, setEditingItemId] = useState(null);
+  const [editingValues, setEditingValues] = useState({ name: '', price: '' });
+
+  const askConfirm = (msg) => window.confirm(msg);
+
+  const startEditItem = (item) => {
+    setEditingItemId(item.id);
+    setEditingValues({ name: item.name, price: item.price });
+  };
+
+  const saveEditItem = async (itemId) => {
+    const updatedReceipts = roomData.receipts.map(r => {
+      if (r.id === activeReceiptId) {
+        const updatedItems = r.items.map(it => it.id === itemId ? { ...it, name: editingValues.name, price: Number(editingValues.price) } : it);
+        return { ...r, items: updatedItems };
+      }
+      return r;
+    });
+    await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
+    setEditingItemId(null);
+  };
+
+  const deleteItem = async (itemId) => {
+    if (!askConfirm('Delete this item?')) return;
+    const updatedReceipts = roomData.receipts.map(r => {
+      if (r.id === activeReceiptId) {
+        const updatedItems = r.items.filter(it => it.id !== itemId);
+        return { ...r, items: updatedItems };
+      }
+      return r;
+    });
+    await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
+  };
+
+  // Remove member (and clean up receipts/payments)
+  const removeMember = async (memberName) => {
+    if (!askConfirm(`Remove ${memberName} from trip? This will remove their payments and consumer tags.`)) return;
+    const updatedMembers = (roomData.members || []).filter(m => m.name !== memberName);
+    const updatedReceipts = (roomData.receipts || []).map(r => {
+      const payments = { ...(r.payments || {}) };
+      delete payments[memberName];
+      const items = (r.items || []).map(it => ({ ...it, consumers: (it.consumers || []).filter(p => p !== memberName) }));
+      return { ...r, payments, items };
+    });
+    await updateDoc(doc(db, 'rooms', roomCode), { members: updatedMembers, receipts: updatedReceipts });
+    setPaymentsLocal(prev => {
+      const copy = { ...prev };
+      delete copy[memberName];
+      return copy;
+    });
+  };
+
   const calculateTotalBalances = () => {
     const balances = {};
     if (!roomData) return balances;
@@ -109,6 +200,33 @@ const TripRoom = () => {
 
   const currentReceipt = roomData?.receipts?.find(r => r.id === activeReceiptId);
   const settlements = minimizeTransactions(calculateTotalBalances());
+
+  // Receipt totals
+  const receiptItemsTotal = currentReceipt?.items?.reduce((sum, it) => {
+    const unit = Number(it.price || 0);
+    const qty = (it.quantity ?? it.qty) ?? ((it.consumers && it.consumers.length > 0) ? it.consumers.length : 1);
+    return sum + unit * qty;
+  }, 0) || 0;
+  // Split total = sum of item totals (price * quantity). Do NOT compute by summing member balances.
+  const receiptSplitTotal = receiptItemsTotal;
+  const totalPaidAtCounter = Object.values(currentReceipt?.payments || {}).reduce((sum, v) => sum + (Number(v) || 0), 0);
+
+  // Per-person amount for the current receipt (sum of item prices they consumed)
+  const perPersonBill = {};
+  roomData?.members?.forEach(m => { perPersonBill[m.name] = 0; });
+  currentReceipt?.items?.forEach(item => {
+    const unitPrice = Number(item.price || 0);
+    const qty = Number(item.quantity || item.qty) || 1;
+    const consumers = item.consumers || [];
+    if (consumers.length > 0) {
+      const share = (unitPrice * qty) / consumers.length;
+      consumers.forEach(p => {
+        if (perPersonBill[p] !== undefined) perPersonBill[p] += share;
+      });
+    } else {
+      // no consumers: do nothing
+    }
+  });
 
   if (view === 'entry') return (
     <div style={styles.entry}>
@@ -132,40 +250,146 @@ const TripRoom = () => {
           ))}
         </div>
       </header>
-
       {currentReceipt ? (
         <main style={{padding: '20px'}}>
+          <TripSummary roomData={roomData} />
           <section style={styles.card}>
             <p style={styles.label}>Step 1: Who paid at counter?</p>
             {roomData.members.map(m => (
               <div key={m.name} style={{display:'flex', justifyContent:'space-between', marginBottom: '8px'}}>
-                <span>{m.name}:</span>
-                <input type="number" placeholder="₹ 0" value={currentReceipt.payments[m.name] || ''} onChange={async (e) => {
-                  const updated = roomData.receipts.map(r => r.id === activeReceiptId ? {...r, payments: {...r.payments, [m.name]: Number(e.target.value)}} : r);
-                  await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
-                }} style={styles.smallInput}/>
+                <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                  <span>{m.name}:</span>
+                  <input
+                    type="number"
+                    placeholder="₹ 0"
+                    value={paymentsLocal[m.name] !== undefined ? paymentsLocal[m.name] : ''}
+                    onChange={(e) => setPaymentsLocal({ ...paymentsLocal, [m.name]: e.target.value })}
+                    onBlur={async (e) => {
+                      const val = Number(e.target.value) || 0;
+                      const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
+                      await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
+                    }}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        const val = Number(e.target.value) || 0;
+                        const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
+                        await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
+                      }
+                    }}
+                    style={styles.smallInput}
+                  />
+                </div>
+                <div>
+                  <button onClick={() => removeMember(m.name)} style={{padding:'4px 8px', borderRadius:'6px', border:'none', background:'#fee2e2'}}>Remove</button>
+                </div>
               </div>
             ))}
-          </section>
-
-          <section style={styles.card}>
-            <p style={styles.label}>Step 2: Scan Bill (QuickSplit Style)</p>
-            <div onClick={() => fileInputRef.current.click()} style={styles.scanBox}>
-              <h4>{isScanning ? "🤖 AI Scanning..." : "📸 Tap to Scan"}</h4>
-              <input type="file" ref={fileInputRef} onChange={handleScan} style={{display:'none'}}/>
+            <div style={{display:'flex', gap: '8px', marginTop: '10px'}}>
+              <input placeholder="Name" value={newMemberName} onChange={e => setNewMemberName(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
+              <input placeholder="UPI (optional)" value={newMemberUpi} onChange={e => setNewMemberUpi(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
+              <button onClick={async () => {
+                if (!newMemberName.trim()) return alert('Enter a name');
+                if (!roomCode) return alert('Room not initialized');
+                const upi = newMemberUpi.trim() || `${newMemberName.toLowerCase()}@upi`;
+                const member = { name: newMemberName.trim(), upi };
+                try {
+                  await updateDoc(doc(db, 'rooms', roomCode), { members: arrayUnion(member) });
+                  setNewMemberName(''); setNewMemberUpi('');
+                  setPaymentsLocal(prev => ({ ...prev, [member.name]: prev[member.name] || '' }));
+                } catch (err) {
+                  console.error('addMember error', err);
+                  alert('Failed to add member: ' + (err?.message || err));
+                }
+              }} style={{background:'#6c5ce7', color:'white', border:'none', borderRadius:'8px', padding:'8px'}}>Add</button>
             </div>
           </section>
 
           <section style={styles.card}>
+            <p style={styles.label}>Step 2: Scan Bill (QuickSplit Style) or Manual Entry</p>
+            <div style={{display: 'flex', gap: '10px', marginBottom: '12px'}}>
+              <button onClick={() => setEntryMode('scan')} style={{flex:1, padding: '8px', borderRadius: '8px', background: entryMode === 'scan' ? '#6366f1' : '#f1f5f9', color: entryMode === 'scan' ? 'white' : '#333', border: 'none'}}>Scan</button>
+              <button onClick={() => setEntryMode('manual')} style={{flex:1, padding: '8px', borderRadius: '8px', background: entryMode === 'manual' ? '#6366f1' : '#f1f5f9', color: entryMode === 'manual' ? 'white' : '#333', border: 'none'}}>Manual</button>
+            </div>
+
+            {entryMode === 'scan' ? (
+              <div style={{...styles.scanBox, position: 'relative'}} onClick={() => fileInputRef.current?.click()}>
+                <h4>{isScanning ? "🤖 AI Scanning..." : "📸 Tap to Scan"}</h4>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  onClick={() => { if (fileInputRef.current) fileInputRef.current.value = null; }}
+                  onChange={handleScan}
+                  style={{position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer'}}
+                />
+              </div>
+            ) : (
+              <div style={{ background: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #eee' }}>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                  <input placeholder="Item" value={manualItem.name} onChange={(e) => setManualItem({...manualItem, name: e.target.value})} style={{ flex: 2, padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <input placeholder="Qty" type="number" min={1} value={manualItem.quantity} onChange={(e) => setManualItem({...manualItem, quantity: Number(e.target.value) || 1})} style={{ width: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <input placeholder="₹ Price" type="number" value={manualItem.price} onChange={(e) => setManualItem({...manualItem, price: e.target.value})} style={{ width: '120px', padding: '10px', borderRadius: '8px', border: '1px solid #ddd' }} />
+                  <button onClick={async () => {
+                    if (!manualItem.name || manualItem.price === '') return alert('Enter name, quantity and price');
+                    if (!activeReceiptId) return alert('Create or select a receipt first');
+                    const newItem = { id: Math.random().toString(36).substr(2,5), name: manualItem.name, price: Number(manualItem.price), quantity: Number(manualItem.quantity) || 1, consumers: [] };
+                    const updatedReceipts = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, items: [...r.items, newItem] } : r);
+                    try {
+                      await updateDoc(doc(db, "rooms", roomCode), { receipts: updatedReceipts });
+                      setManualItem({ name: '', price: '', quantity: 1 });
+                    } catch (err) {
+                      console.error('addManualItem error', err);
+                      alert('Failed to add item: ' + (err?.message || err));
+                    }
+                  }} style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', padding: '10px' }}>Add</button>
+                </div>
+                <div style={{ fontSize: '12px', color: '#666' }}>Tip: use Scan for receipts; use Manual for quick edits or adding missed items.</div>
+              </div>
+            )}
+          </section>
+
+          <section style={styles.card}>
             <p style={styles.label}>Step 3: Who had what?</p>
+            <div style={{display:'flex', justifyContent:'space-between', marginBottom: '12px', fontSize: '14px'}}>
+              <div>Items Total: <strong>₹{receiptItemsTotal.toFixed(2)}</strong></div>
+              <div>Split Total: <strong>₹{receiptSplitTotal.toFixed(2)}</strong></div>
+              <div>Paid at Counter: <strong>₹{totalPaidAtCounter.toFixed(2)}</strong></div>
+            </div>
+            <div style={{display:'flex', gap:'10px', flexWrap:'wrap', marginBottom:'12px'}}>
+              {roomData?.members?.map(m => (
+                <div key={m.name} style={{background:'#f3f4f6', padding:'8px 12px', borderRadius:'10px', fontSize:'13px'}}>
+                  <div style={{fontSize:'11px', color:'#555'}}>{m.name}</div>
+                  <div style={{fontWeight:'600'}}>₹{(perPersonBill[m.name] || 0).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
             {currentReceipt.items.map(item => (
               <div key={item.id} style={{padding:'10px 0', borderBottom:'1px solid #eee'}}>
-                <div style={{display:'flex', justifyContent:'space-between'}}><strong>{item.name}</strong><span>₹{item.price}</span></div>
-                <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'8px'}}>
-                  {roomData.members.map(m => (
-                    <button key={m.name} onClick={() => toggleConsumer(item.id, m.name)} style={{...styles.tag, background: item.consumers.includes(m.name) ? '#6366f1' : 'white', color: item.consumers.includes(m.name) ? 'white' : '#6366f1'}}>{m.name}</button>
-                  ))}
-                </div>
+                {editingItemId === item.id ? (
+                  <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                    <input value={editingValues.name} onChange={e => setEditingValues({...editingValues, name: e.target.value})} style={{flex:2, padding:'6px', borderRadius:'6px', border:'1px solid #ddd'}} />
+                    <input value={editingValues.price} onChange={e => setEditingValues({...editingValues, price: e.target.value})} style={{width:'100px', padding:'6px', borderRadius:'6px', border:'1px solid #ddd'}} />
+                    <button onClick={() => saveEditItem(item.id)} style={{padding:'6px 10px', background:'#10b981', color:'white', border:'none', borderRadius:'6px'}}>Save</button>
+                    <button onClick={() => setEditingItemId(null)} style={{padding:'6px 10px', borderRadius:'6px'}}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                      <strong>{item.name}</strong>
+                      <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                        <span>₹{item.price}</span>
+                        <button onClick={() => startEditItem(item)} style={{padding:'4px 8px', borderRadius:'6px', border:'none', background:'#f1f5f9'}}>Edit</button>
+                        <button onClick={() => deleteItem(item.id)} style={{padding:'4px 8px', borderRadius:'6px', border:'none', background:'#fee2e2'}}>Delete</button>
+                        <button onClick={() => selectAllConsumers(item.id)} style={{padding:'4px 8px', borderRadius:'6px', border:'none', background:'#f8fafc'}}>Select All</button>
+                      </div>
+                    </div>
+                    <div style={{display:'flex', flexWrap:'wrap', gap:'5px', marginTop:'8px'}}>
+                      {roomData.members.map(m => (
+                        <button key={m.name} onClick={() => toggleConsumer(item.id, m.name)} style={{...styles.tag, background: item.consumers.includes(m.name) ? '#6366f1' : 'white', color: item.consumers.includes(m.name) ? 'white' : '#6366f1'}}>{m.name}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </section>

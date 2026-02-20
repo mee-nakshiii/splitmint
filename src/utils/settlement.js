@@ -28,7 +28,7 @@ export const minimizeTransactions = (balances) => {
     transactions.push({
       from: debtor.name,
       to: creditor.name,
-      amount: settledAmount.toFixed(2), // Keep it to 2 decimal places
+      amount: Number(settledAmount.toFixed(2)), // Keep it to 2 decimal places (numeric)
     });
 
     // Update their remaining balances
