@@ -1,70 +1,107 @@
-# Getting Started with Create React App
+[SplitMInt] 🎯
+Basic Details
+Team Name: [Coffee_Codes]
+Team Members
+Member 1: [Saira Zac Rozan] - [Muthoot Institute of Technology and Science]
+Member 2: [Meenakshi T S] - [Muthoot Institute of Technology and Science]
+Hosted Project Link
+[https://splitmint-lilac.vercel.app/]
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Project Description
+[SplitMint is a receipt-centric expense manager designed for group trips. It allows users to create dynamic "Bill Sheets" for every payment, using AI to scan receipts and a quantity-based splitting algorithm to ensure everyone pays exactly for what they consumed.]
 
-## Available Scripts
+The Problem statement
+[During group trips, traditional "equal split" apps fail when people order different items at a restaurant or share specific costs. Manual calculation is tedious and prone to errors.]
 
-In the project directory, you can run:
+The Solution
+[We built a "Google Sheets" style interface where each bill is a new tab. Users can:
 
-### `npm start`
+Add new "Bill Sheets" for every trip expense (e.g., Dinner, Jeep Rent).
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Manually enter items and prices for each bill.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Assign items to specific friends by tapping their names (Quantity-Based Splitting).
 
-### `npm test`
+View an optimized settlement plan to clear all debts in the fewest possible transactions.]
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Technical Details
+Technologies/Components Used
+For Software:
 
-### `npm run build`
+Languages used: [JavaScript(React)]
+Frameworks used: [React (UI Framework).]
+Libraries used: [Firebase SDK, qrcode.react,React Router]
+Tools used: [V S Code, Git, GitHub, Firebase Console]
+For Hardware:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Features
+List the key features of your project:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Feature 1: [Dynamic Bill Sheets: Create unlimited "tabs" for different expenses within a single trip room.]
+Feature 2: [Quantity-Based Logic: Ensure users only pay for what they specifically consumed.]
+Feature 3: [Real-time Collaboration: Changes made on one device (like a laptop) appear instantly on mobile devices via Firebase.]
+Feature 4: [UPI Integration: Generate payment QR codes automatically for easier settlements.]
+Implementation
+For Software:
+Installation
+[npm install]
+Run
+[npm start]
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Project Documentation
+For Software:
+Screenshots (Add at least 3)
+![![alt text](image.png)](The SplitMint entry point, offering two modes: Quick Split for instant scanning and Trip Room for long-term group travel tracking)
 
-### `npm run eject`
+![![alt text](image-1.png)](A functional look at the Expense card featuring the interactive '+ Add' button used to log new costs manually.) 
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+![![alt text](image-2.png)](AA functional look of the Quick Split Interface) 
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Additional Demos
+[Add any extra demo materials/links - Live site, APK download, online demo, etc.]
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+AI Tools Used AI Tools Used
+Tool Used: Gemini
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Purpose: * Assistance in debugging complex React state management and Firebase synchronization.
 
-## Learn More
+Generation of optimized algorithms for transaction minimization and quantity-based cost splitting.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+Troubleshooting Firebase deployment and document reference errors.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Key Prompts Used:
 
-### Code Splitting
+"Fix FirebaseError: Invalid document reference. Document references must have an even number of segments, but rooms has 1."
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+"Develop a React function to toggle individual participants for specific items in a shared bill sheet."
 
-### Analyzing the Bundle Size
+"How to deploy a React app to GitHub Pages using the terminal and gh-pages package."
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Percentage of AI-generated code: Approximately 60%
 
-### Making a Progressive Web App
+Human Contributions:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+Architecture Design: Planning the multi-bill "Google Sheets" structure for trip management.
 
-### Advanced Configuration
+Business Logic: Defining the rules for how counter payments interact with individual item splits.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+Integration & Deployment: Setting up the Firebase environment, managing security rules, and executing the GitHub deployment.
 
-### Deployment
+UI/UX Decisions: Designing the mobile-first layouts and the visual hierarchy for trip rooms.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Team Contributions
+[Saira Zac Rozan]: [UI/UX Development: Built the mobile-first React interface for the Home, Quick Split, and Trip Room screens.
 
-### `npm run build` fails to minify
+Manual Input System: Developed the manual item-entry components for adding bill details without scanning.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Interactive Splitting: Implemented the button-tag logic that allows users to toggle their names for quantity-based cost assignment.
+
+Documentation & QA: Managed the technical README and tested real-time Firebase synchronization across devices.]
+[Meenakshi T S]: [Backend & Database Architecture: Designed and implemented the Firebase Firestore NoSQL schema for real-time trip synchronization.
+
+Settlement Algorithm: Developed the core logic for Quantity-Based Splitting and transaction minimization to optimize debt clearing.
+
+System Integration: Managed the connection between the React frontend and the cloud database, including fixing critical document reference errors.
+
+Payment Integration: Integrated the qrcode.react library to automatically generate UPI QR codes for instant settlements.]
+
