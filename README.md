@@ -1,9 +1,11 @@
-[SplitMInt] 🎯
+![alt text](image-3.png)[SplitMInt] 🎯
+
 Basic Details
 Team Name: [Coffee_Codes]
 Team Members
 Member 1: [Saira Zac Rozan] - [Muthoot Institute of Technology and Science]
 Member 2: [Meenakshi T S] - [Muthoot Institute of Technology and Science]
+
 Hosted Project Link
 [https://splitmint-lilac.vercel.app/]
 
@@ -58,7 +60,7 @@ Screenshots (Add at least 3)
 ![![alt text](image-2.png)](AA functional look of the Quick Split Interface) 
 
 Additional Demos
-[Add any extra demo materials/links - Live site, APK download, online demo, etc.]
+[https://drive.google.com/file/d/16to_4wTZcZD_XJf3qwWYqZmnhdWF9lF1/view?usp=drive_link]
 
 AI Tools Used AI Tools Used
 Tool Used: Gemini
