@@ -8,8 +8,9 @@ const CombinedReport = (props) => {
   const state = location.state || {};
   const roomData = state.roomData || null;
   const settlements = state.settlements || [];
+    const navigate = useNavigate();
   if (!roomData) return <div style={{padding:40}}>No room selected. Open this from Trip Room to view the combined report.</div>;
-  const navigate = useNavigate();
+
   return (
     <div style={{padding:20}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
