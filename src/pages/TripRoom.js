@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { doc, onSnapshot, updateDoc, arrayUnion, getDoc, setDoc } from "firebase/firestore";
 import { minimizeTransactions } from '../utils/settlement';
 import { scanItemizedBill } from '../utils/gemini';
-import { QRCodeSVG } from 'qrcode.react';
+
 // TripSummary moved to Combined Report page
 
 const TripRoom = () => {
@@ -20,7 +20,7 @@ const TripRoom = () => {
   const [joinCode, setJoinCode] = useState('');
   const [initialMembers, setInitialMembers] = useState([]);
   const [newInitialMember, setNewInitialMember] = useState('');
-  const [showCombined, setShowCombined] = useState(false);
+ 
   const [editingUpiName, setEditingUpiName] = useState(null);
   const [editingUpiValue, setEditingUpiValue] = useState('');
   const navigate = useNavigate();
