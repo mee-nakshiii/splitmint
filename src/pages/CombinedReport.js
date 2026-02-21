@@ -11,6 +11,35 @@ const CombinedReport = (props) => {
     const navigate = useNavigate();
   if (!roomData) return <div style={{padding:40}}>No room selected. Open this from Trip Room to view the combined report.</div>;
 
+  // Compute per-person expenditures across all receipts (split item cost among consumers)
+  const expenditures = {};
+  (roomData.members || []).forEach(m => { expenditures[m.name] = 0; });
+  (roomData.receipts || []).forEach(r => {
+    (r.items || []).forEach(item => {
+      const unit = Number(item.price || 0);
+      const qty = (item.quantity ?? item.qty) ?? ((item.consumers && item.consumers.length > 0) ? item.consumers.length : 1);
+      const total = unit * qty;
+      const consumers = item.consumers || [];
+      if (consumers.length > 0) {
+        const share = total / consumers.length;
+        consumers.forEach(p => {
+          if (expenditures[p] === undefined) expenditures[p] = 0;
+          expenditures[p] += share;
+        });
+      }
+    });
+  });
+
+  // Aggregate who paid at counter (across receipts)
+  const paidMap = {};
+  (roomData.members || []).forEach(m => { paidMap[m.name] = 0; });
+  (roomData.receipts || []).forEach(r => {
+    Object.entries(r.payments || {}).forEach(([name, amount]) => {
+      if (paidMap[name] === undefined) paidMap[name] = 0;
+      paidMap[name] += Number(amount) || 0;
+    });
+  });
+
   return (
     <div style={{padding:20}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
@@ -55,7 +84,10 @@ const CombinedReport = (props) => {
                 <div style={{fontWeight:600}}>{m.name}</div>
                 <div style={{fontSize:12, color:'#666'}}>{m.upi || 'No UPI set'}</div>
               </div>
-              <div style={{fontSize:14, fontWeight:600}}></div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:14, fontWeight:600}}>₹{(expenditures[m.name] || 0).toFixed(2)}</div>
+                <div style={{fontSize:12, color:'#666'}}>Paid ₹{(paidMap[m.name] || 0).toFixed(2)}</div>
+              </div>
             </div>
           ))}
         </aside>
