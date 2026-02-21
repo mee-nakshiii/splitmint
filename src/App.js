@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import Home from './pages/Home';
 import QuickSplit from './pages/QuickSplit';
 import TripRoom from './pages/TripRoom';
+import CombinedReport from './pages/CombinedReport';
 
 // Navbar for easy navigation between your AI and Database tools
 const Navbar = () => (
@@ -50,6 +51,14 @@ function App() {
             <>
               <Navbar />
               <TripRoom />
+            </>
+          } />
+
+          {/* Combined Report Page */}
+          <Route path="/trip-room/combined" element={
+            <>
+              <Navbar />
+              <CombinedReport />
             </>
           } />
         </Routes>

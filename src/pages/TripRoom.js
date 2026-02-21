@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { db } from '../firebase';
 import { doc, onSnapshot, updateDoc, arrayUnion, getDoc, setDoc } from "firebase/firestore";
 import { minimizeTransactions } from '../utils/settlement';
 import { scanItemizedBill } from '../utils/gemini';
 import { QRCodeSVG } from 'qrcode.react';
-import TripSummary from '../components/TripSummary';
+// TripSummary moved to Combined Report page
 
 const TripRoom = () => {
   const fileInputRef = useRef(null);
@@ -15,6 +16,25 @@ const TripRoom = () => {
   const [activeReceiptId, setActiveReceiptId] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [paymentsLocal, setPaymentsLocal] = useState({});
+  const [entryChoice, setEntryChoice] = useState('create');
+  const [joinCode, setJoinCode] = useState('');
+  const [initialMembers, setInitialMembers] = useState([]);
+  const [newInitialMember, setNewInitialMember] = useState('');
+  const [showCombined, setShowCombined] = useState(false);
+  const [editingUpiName, setEditingUpiName] = useState(null);
+  const [editingUpiValue, setEditingUpiValue] = useState('');
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Restore room/receipt when navigated back from CombinedReport
+  useEffect(() => {
+    const s = location.state || {};
+    if (s.roomCode) {
+      setRoomCode(s.roomCode);
+      setView('dashboard');
+      if (s.activeReceiptId) setActiveReceiptId(s.activeReceiptId);
+    }
+  }, [location]);
   const [newMemberName, setNewMemberName] = useState('');
   const [newMemberUpi, setNewMemberUpi] = useState('');
   const [entryMode, setEntryMode] = useState('scan');
@@ -46,13 +66,25 @@ const TripRoom = () => {
   const handleCreate = async () => {
     if (!roomCode || !currentUser) return alert("Enter Title and Name");
     const code = Math.random().toString(36).substr(2, 6).toUpperCase();
+    const members = [{ name: currentUser, upi: '' }, ...initialMembers.filter(n => n && n.trim()).map(n => ({ name: n.trim(), upi: '' }))];
     await setDoc(doc(db, "rooms", code), {
       title: roomCode,
       admin: currentUser,
-      members: [{ name: currentUser, upi: '' }],
+      members,
       receipts: [],
       createdAt: new Date()
     });
+    setRoomCode(code);
+    setView('dashboard');
+  };
+
+  const handleJoin = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (!code || !currentUser) return alert('Enter room code and name');
+    const roomRef = doc(db, 'rooms', code);
+    const snapshot = await getDoc(roomRef);
+    if (!snapshot.exists()) return alert('Room not found');
+    await updateDoc(roomRef, { members: arrayUnion({ name: currentUser, upi: '' }) });
     setRoomCode(code);
     setView('dashboard');
   };
@@ -231,9 +263,29 @@ const TripRoom = () => {
   if (view === 'entry') return (
     <div style={styles.entry}>
       <h1 style={{color: '#6366f1'}}>SplitMint Room 🏔️</h1>
-      <input placeholder="Nickname" value={currentUser} onChange={e => setCurrentUser(e.target.value)} style={styles.input}/>
-      <input placeholder="Trip Title" value={roomCode} onChange={e => setRoomCode(e.target.value)} style={styles.input}/>
-      <button onClick={handleCreate} style={styles.btn}>Launch Trip Room</button>
+      <div style={{display:'flex', gap:'8px', marginBottom:'12px'}}>
+        <button onClick={() => setEntryChoice('create')} style={{flex:1, padding: '10px', borderRadius: '8px', background: entryChoice === 'create' ? '#6366f1' : '#f1f5f9', color: entryChoice === 'create' ? 'white' : '#333', border: 'none'}}>Create Room</button>
+        <button onClick={() => setEntryChoice('join')} style={{flex:1, padding: '10px', borderRadius: '8px', background: entryChoice === 'join' ? '#6366f1' : '#f1f5f9', color: entryChoice === 'join' ? 'white' : '#333', border: 'none'}}>Join Room</button>
+      </div>
+      <input placeholder="Your Name" value={currentUser} onChange={e => setCurrentUser(e.target.value)} style={styles.input}/>
+      {entryChoice === 'create' ? (
+        <>
+          <input placeholder="Trip Title" value={roomCode} onChange={e => setRoomCode(e.target.value)} style={styles.input}/>
+          <div style={{display:'flex', gap:'8px', marginBottom:'8px'}}>
+            <input placeholder="Add member name" value={newInitialMember} onChange={e => setNewInitialMember(e.target.value)} style={{flex:1, padding:'10px', borderRadius:'8px', border:'1px solid #ddd'}} />
+            <button onClick={() => { if (newInitialMember.trim()) { setInitialMembers([...initialMembers, newInitialMember.trim()]); setNewInitialMember(''); } }} style={{padding:'10px', borderRadius:'8px', background:'#6c5ce7', color:'white', border:'none'}}>Add</button>
+          </div>
+          <div style={{display:'flex', gap:'8px', flexWrap:'wrap', marginBottom:'12px'}}>
+            {initialMembers.map((m, i) => (<div key={i} style={{background:'#eef2ff', padding:'6px 8px', borderRadius:'12px'}}>{m} <button onClick={() => setInitialMembers(initialMembers.filter((_,j)=>j!==i))} style={{marginLeft:'6px'}}>x</button></div>))}
+          </div>
+          <button onClick={handleCreate} style={styles.btn}>Create Room</button>
+        </>
+      ) : (
+        <>
+          <input placeholder="Room Code" value={joinCode} onChange={e => setJoinCode(e.target.value)} style={styles.input}/>
+          <button onClick={handleJoin} style={styles.btn}>Join Room</button>
+        </>
+      )}
     </div>
   );
 
@@ -242,7 +294,10 @@ const TripRoom = () => {
       <header style={styles.header}>
         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
           <h3 style={{margin:0}}>{roomData?.title} <small style={styles.code}>#{roomCode}</small></h3>
-          <button onClick={addNewReceipt} style={styles.addBtn}>+ New Bill</button>
+          <div style={{display:'flex', gap:'8px'}}>
+            <button onClick={() => navigate('/trip-room/combined', { state: { roomData, settlements, roomCode, activeReceiptId } })} style={{padding:'6px 12px', background: '#f3f4f6', border: 'none', borderRadius: '6px'}}>Combined Report</button>
+            <button onClick={addNewReceipt} style={styles.addBtn}>+ New Bill</button>
+          </div>
         </div>
         <div style={styles.tabBar}>
           {roomData?.receipts?.map(r => (
@@ -252,60 +307,9 @@ const TripRoom = () => {
       </header>
       {currentReceipt ? (
         <main style={{padding: '20px'}}>
-          <TripSummary roomData={roomData} />
-          <section style={styles.card}>
-            <p style={styles.label}>Step 1: Who paid at counter?</p>
-            {roomData.members.map(m => (
-              <div key={m.name} style={{display:'flex', justifyContent:'space-between', marginBottom: '8px'}}>
-                <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
-                  <span>{m.name}:</span>
-                  <input
-                    type="number"
-                    placeholder="₹ 0"
-                    value={paymentsLocal[m.name] !== undefined ? paymentsLocal[m.name] : ''}
-                    onChange={(e) => setPaymentsLocal({ ...paymentsLocal, [m.name]: e.target.value })}
-                    onBlur={async (e) => {
-                      const val = Number(e.target.value) || 0;
-                      const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
-                      await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
-                    }}
-                    onKeyDown={async (e) => {
-                      if (e.key === 'Enter') {
-                        const val = Number(e.target.value) || 0;
-                        const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
-                        await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
-                      }
-                    }}
-                    style={styles.smallInput}
-                  />
-                </div>
-                <div>
-                  <button onClick={() => removeMember(m.name)} style={{padding:'4px 8px', borderRadius:'6px', border:'none', background:'#fee2e2'}}>Remove</button>
-                </div>
-              </div>
-            ))}
-            <div style={{display:'flex', gap: '8px', marginTop: '10px'}}>
-              <input placeholder="Name" value={newMemberName} onChange={e => setNewMemberName(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
-              <input placeholder="UPI (optional)" value={newMemberUpi} onChange={e => setNewMemberUpi(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
-              <button onClick={async () => {
-                if (!newMemberName.trim()) return alert('Enter a name');
-                if (!roomCode) return alert('Room not initialized');
-                const upi = newMemberUpi.trim() || `${newMemberName.toLowerCase()}@upi`;
-                const member = { name: newMemberName.trim(), upi };
-                try {
-                  await updateDoc(doc(db, 'rooms', roomCode), { members: arrayUnion(member) });
-                  setNewMemberName(''); setNewMemberUpi('');
-                  setPaymentsLocal(prev => ({ ...prev, [member.name]: prev[member.name] || '' }));
-                } catch (err) {
-                  console.error('addMember error', err);
-                  alert('Failed to add member: ' + (err?.message || err));
-                }
-              }} style={{background:'#6c5ce7', color:'white', border:'none', borderRadius:'8px', padding:'8px'}}>Add</button>
-            </div>
-          </section>
 
           <section style={styles.card}>
-            <p style={styles.label}>Step 2: Scan Bill (QuickSplit Style) or Manual Entry</p>
+            <p style={styles.label}>Step 1: Scan Bill (QuickSplit Style) or Manual Entry</p>
             <div style={{display: 'flex', gap: '10px', marginBottom: '12px'}}>
               <button onClick={() => setEntryMode('scan')} style={{flex:1, padding: '8px', borderRadius: '8px', background: entryMode === 'scan' ? '#6366f1' : '#f1f5f9', color: entryMode === 'scan' ? 'white' : '#333', border: 'none'}}>Scan</button>
               <button onClick={() => setEntryMode('manual')} style={{flex:1, padding: '8px', borderRadius: '8px', background: entryMode === 'manual' ? '#6366f1' : '#f1f5f9', color: entryMode === 'manual' ? 'white' : '#333', border: 'none'}}>Manual</button>
@@ -349,7 +353,7 @@ const TripRoom = () => {
           </section>
 
           <section style={styles.card}>
-            <p style={styles.label}>Step 3: Who had what?</p>
+            <p style={styles.label}>Step 2: Who had what?</p>
             <div style={{display:'flex', justifyContent:'space-between', marginBottom: '12px', fontSize: '14px'}}>
               <div>Items Total: <strong>₹{receiptItemsTotal.toFixed(2)}</strong></div>
               <div>Split Total: <strong>₹{receiptSplitTotal.toFixed(2)}</strong></div>
@@ -394,12 +398,85 @@ const TripRoom = () => {
             ))}
           </section>
 
-          <div style={styles.settleCard}>
-            <h4>Optimized Settlements (All Bills)</h4>
-            {settlements.map((s, i) => (
-              <div key={i} style={styles.settleRow}><span>{s.from} → {s.to}</span><strong>₹{s.amount.toFixed(2)}</strong><QRCodeSVG value={`upi://pay?pa=user@upi&am=${s.amount}`} size={35} /></div>
+          <section style={styles.card}>
+            <p style={styles.label}>Step 3: Who paid at counter?</p>
+            {roomData.members.map(m => (
+              <div key={m.name} style={{display:'flex', justifyContent:'space-between', marginBottom: '8px', alignItems:'center'}}>
+                <div style={{display:'flex', alignItems:'center', gap:'8px'}}>
+                  <span>{m.name}:</span>
+                  <input
+                    type="number"
+                    placeholder="₹ 0"
+                    value={paymentsLocal[m.name] !== undefined ? paymentsLocal[m.name] : ''}
+                    onChange={(e) => setPaymentsLocal({ ...paymentsLocal, [m.name]: e.target.value })}
+                    onBlur={async (e) => {
+                      const val = Number(e.target.value) || 0;
+                      const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
+                      await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
+                    }}
+                    onKeyDown={async (e) => {
+                      if (e.key === 'Enter') {
+                        const val = Number(e.target.value) || 0;
+                        const updated = roomData.receipts.map(r => r.id === activeReceiptId ? { ...r, payments: { ...r.payments, [m.name]: val } } : r);
+                        await updateDoc(doc(db, "rooms", roomCode), { receipts: updated });
+                      }
+                    }}
+                    style={styles.smallInput}
+                  />
+                </div>
+                <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                  {editingUpiName === m.name ? (
+                    <>
+                      <input value={editingUpiValue} onChange={e => setEditingUpiValue(e.target.value)} style={{padding:'6px', borderRadius:'6px', border:'1px solid #ddd'}} placeholder="Enter UPI" />
+                      <button onClick={async () => {
+                        const newUpi = editingUpiValue.trim();
+                        const updatedMembers = (roomData.members || []).map(mem => mem.name === m.name ? { ...mem, upi: newUpi } : mem);
+                        try {
+                          await updateDoc(doc(db, 'rooms', roomCode), { members: updatedMembers });
+                          setEditingUpiName(null); setEditingUpiValue('');
+                        } catch (err) {
+                          console.error('update upi error', err);
+                          alert('Failed to update UPI: ' + (err?.message || err));
+                        }
+                      }} style={{padding:'6px 8px', background:'#6c5ce7', color:'white', border:'none', borderRadius:'6px'}}>Save</button>
+                      <button onClick={() => { setEditingUpiName(null); setEditingUpiValue(''); }} style={{padding:'6px 8px', borderRadius:'6px'}}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{fontSize:12, color:'#666'}}>{m.upi || 'No UPI'}</div>
+                      <button onClick={() => { setEditingUpiName(m.name); setEditingUpiValue(m.upi || ''); }} style={{padding:'6px 8px', borderRadius:'6px'}}>Edit UPI</button>
+                      <button onClick={() => removeMember(m.name)} style={{padding:'6px 8px', borderRadius:'6px', background:'#fee2e2', border:'none'}}>Remove</button>
+                    </>
+                  )}
+                </div>
+              </div>
             ))}
-          </div>
+            <div style={{display:'flex', gap: '8px', marginTop: '10px'}}>
+              <input placeholder="Name" value={newMemberName} onChange={e => setNewMemberName(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
+              <input placeholder="UPI (optional)" value={newMemberUpi} onChange={e => setNewMemberUpi(e.target.value)} style={{flex:1, padding:'8px', borderRadius:'8px', border:'1px solid #ddd'}} />
+              <button onClick={async () => {
+                if (!newMemberName.trim()) return alert('Enter a name');
+                if (!roomCode) return alert('Room not initialized');
+                const upi = newMemberUpi.trim() || '';
+                const existing = (roomData.members || []).find(m => m.name === newMemberName.trim());
+                try {
+                  if (existing) {
+                    // update existing member's upi
+                    const updatedMembers = (roomData.members || []).map(m => m.name === existing.name ? { ...m, upi: upi || m.upi } : m);
+                    await updateDoc(doc(db, 'rooms', roomCode), { members: updatedMembers });
+                  } else {
+                    await updateDoc(doc(db, 'rooms', roomCode), { members: arrayUnion({ name: newMemberName.trim(), upi: upi || '' }) });
+                  }
+                  setNewMemberName(''); setNewMemberUpi('');
+                  setPaymentsLocal(prev => ({ ...prev, [newMemberName.trim()]: prev[newMemberName.trim()] || '' }));
+                } catch (err) {
+                  console.error('addMember error', err);
+                  alert('Failed to add/update member: ' + (err?.message || err));
+                }
+              }} style={{background:'#6c5ce7', color:'white', border:'none', borderRadius:'8px', padding:'8px'}}>Add</button>
+            </div>
+          </section>
+
         </main>
       ) : <div style={{padding:'50px', textAlign:'center', color:'#888'}}>Tap "+ New Bill" to add your first receipt!</div>}
     </div>
